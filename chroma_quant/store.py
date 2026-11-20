@@ -121,6 +121,82 @@ CREATE TABLE IF NOT EXISTS analyses (
 CREATE INDEX IF NOT EXISTS idx_products_fp ON products(fingerprint);
 CREATE INDEX IF NOT EXISTS idx_analyses_lookup
     ON analyses(method_id, product_id);
+
+-- ======================================================================
+-- 往返扫描 / 双图带拼接（全部为追加式不可变历史，与旧表无外键耦合）
+-- ======================================================================
+
+-- 电机行程：u(t) 分段线性折点 + 回差半宽 + 起始台面位置
+CREATE TABLE IF NOT EXISTS scan_strokes (
+    stroke_id        TEXT PRIMARY KEY,
+    g_num            INTEGER NOT NULL,
+    g_den            INTEGER NOT NULL,
+    s0_num           INTEGER NOT NULL,
+    s0_den           INTEGER NOT NULL,
+    created_at       TEXT NOT NULL,
+    note             TEXT
+);
+
+CREATE TABLE IF NOT EXISTS scan_motor_knots (
+    stroke_id  TEXT NOT NULL REFERENCES scan_strokes(stroke_id),
+    idx        INTEGER NOT NULL,
+    t_num      INTEGER NOT NULL,
+    t_den      INTEGER NOT NULL,
+    u_num      INTEGER NOT NULL,
+    u_den      INTEGER NOT NULL,
+    PRIMARY KEY (stroke_id, idx)
+);
+
+-- 刻度原点订正：只追加新版本；台面轨迹不依赖偏移，订正不重算电机运动
+CREATE TABLE IF NOT EXISTS scan_origin_versions (
+    stroke_id    TEXT NOT NULL REFERENCES scan_strokes(stroke_id),
+    version      INTEGER NOT NULL,
+    off_num      INTEGER NOT NULL,
+    off_den      INTEGER NOT NULL,
+    created_at   TEXT NOT NULL,
+    supersedes   INTEGER,
+    PRIMARY KEY (stroke_id, version)
+);
+
+-- 扫行说明：取哪条行程的哪次单调行程、哪版原点、哪个净响应产品
+CREATE TABLE IF NOT EXISTS scan_rows (
+    row_id             TEXT PRIMARY KEY,
+    stroke_id          TEXT NOT NULL REFERENCES scan_strokes(stroke_id),
+    run_index          INTEGER NOT NULL,
+    origin_version     INTEGER NOT NULL,
+    product_id         TEXT,
+    baseline_version   INTEGER,
+    created_at         TEXT NOT NULL
+);
+
+-- 印样单：重叠列范围 + 禁用 (行,列)；换单只是换一组约束，不触发任何运动重算
+CREATE TABLE IF NOT EXISTS print_sheets (
+    sheet_id     TEXT PRIMARY KEY,
+    n_rows       INTEGER NOT NULL,
+    col_lo       INTEGER NOT NULL,
+    col_hi       INTEGER NOT NULL,
+    created_at   TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS print_sheet_disabled (
+    sheet_id  TEXT NOT NULL REFERENCES print_sheets(sheet_id),
+    row_idx   INTEGER NOT NULL,
+    col       INTEGER NOT NULL,
+    PRIMARY KEY (sheet_id, row_idx, col)
+);
+
+-- 已定位图带：每行每实物列一个读数；缺测列直接没有行（不造数）
+CREATE TABLE IF NOT EXISTS located_strips (
+    strip_id   TEXT NOT NULL,
+    row_idx    INTEGER NOT NULL,
+    col        INTEGER NOT NULL,
+    y_num      INTEGER NOT NULL,
+    y_den      INTEGER NOT NULL,
+    PRIMARY KEY (strip_id, row_idx, col)
+);
+
+CREATE INDEX IF NOT EXISTS idx_strips_lookup
+    ON located_strips(strip_id, row_idx);
 """
 
 
